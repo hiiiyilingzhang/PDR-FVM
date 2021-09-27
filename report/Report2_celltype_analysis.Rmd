@@ -1,0 +1,30 @@
+---
+title: "ERM & Blood Analysis -- Report 2"
+author: "Yiling Zhang"
+date: "`r Sys.Date()`"
+output: 
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    df_print: paged
+    toc: true
+toc-title: "Table of Contents"
+vignette: >
+  %\VignetteIndexEntry{ERM & Blood Analysis -- Report 2 Cell type}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	fig.align = "center",
+  fig.width = 8
+)
+```
+
+```{r}
+
+```
