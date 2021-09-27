@@ -1,6 +1,6 @@
 ---
 title: "ERM & Blood Analysis -- Report 1"
-author: "Yiling Zhang 18230130"
+author: "Yiling Zhang"
 date: "`r Sys.Date()`"
 output: 
   prettydoc::html_pretty:
@@ -29,6 +29,7 @@ knitr::opts_chunk$set(
 ```{r}
 library(Seurat)
 library(dplyr)
+library(ggplot2)
 ```
 
 ## 1.1 Read in and Initialize Seurat Obejct
@@ -174,9 +175,13 @@ nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
 
 ### 2.2.4 Run DoubletFinder
 
-```{r message=FALSE, warning=FALSE}
+```{r eval=FALSE}
 mergeData <- doubletFinder_v3(mergeData, PCs = pc.num, pN = 0.25, pK = pK_bcmvn, 
                              nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
+```
+
+```{r include=FALSE, eval=TRUE}
+mergeData <- readRDS("../data/SeuratObj/merged.RDS")
 ```
 
 ```{r}
@@ -186,6 +191,8 @@ DF.name <- colnames(mergeData@meta.data)[grepl("DF.classification", colnames(mer
 cowplot::plot_grid(ncol = 2, DimPlot(mergeData, group.by = "orig.ident") + NoAxes(), 
                    DimPlot(mergeData, group.by = DF.name) + NoAxes())
 ```
+
+
 ```{r}
 DF.name <- colnames(mergeData@meta.data)[grepl("DF.classification", colnames(mergeData@meta.data))]
 mergeData.singlet <- mergeData[, mergeData@meta.data[, DF.name] == "Singlet"]
@@ -196,7 +203,7 @@ mergeData.singlet
 ## 2.3 Calculate QC
 ### 2.3.1 Generating quality metrics
 
-*mitochondrial ratio:**
+**mitochondrial ratio:**
 ```{r}
 mergeData.singlet[["percent.mt"]] <- PercentageFeatureSet(object = mergeData.singlet, pattern = "^MT-", assay = "RNA")
 mergeData.singlet$percent.mt <- mergeData.singlet@meta.data$percent.mt / 100
@@ -376,12 +383,62 @@ filteredData2
 # 3. Integration
 ## 3.1 Cell cycle scoring check
 ```{r}
-library(RCurl)
+cell_cycle_genes <- read.csv("../data/cell-cycle/Homo_sapiens.csv")
+head(cell_cycle_genes)
 ```
 
+ID transfer via annotation databases
 ```{r}
-cc_file <- getURL("https://raw.githubusercontent.com/hbc/tinyatlas/master/cell_cycle/Homo_sapiens.csv") 
-cell_cycle_genes <- read.csv(text = cc_file)
+library(AnnotationHub)
+library(ensembldb)
+```
+
+* Query Ensembl 
+```{r eval=FALSE}
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Homo sapiens", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+
+```{r eval=TRUE, include=FALSE}
+load("../data/annotation/annotations.RData")
+```
+
+* Annotations to get the corresponding gene names for the Ensembl IDs of the cell cycle genes
+```{r}
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
 ```
 
 ## 3.2 SCTransform
@@ -391,6 +448,7 @@ split_seurat <- SplitObject(filteredData2, split.by = "orig.ident")
 split_seurat
 ```
 
+Perform the cell cycle scoring and sctransform on all samples.
 ```{r}
 for (i in 1:length(split_seurat)) {
     split_seurat[[i]] <- NormalizeData(split_seurat[[i]], verbose = F)
@@ -401,12 +459,112 @@ for (i in 1:length(split_seurat)) {
 
 ## 3.2 Integration
 
+First, we need to specify that we want to use 3000 most variable genes identified by SCTransform for the integration. By default, this function only selects the top 2000 genes.
+```{r eval=FALSE}
+# Select the most variable features to use for integration
+integ_features <- SelectIntegrationFeatures(object.list = split_seurat, nfeatures = 3000) 
+```
+
+Then, we need to prepare the SCTransform object for integration.
+```{r eval=FALSE}
+# Prepare the SCT list object for integration
+split_seurat <- PrepSCTIntegration(object.list = split_seurat, 
+                                   anchor.features = integ_features)
+```
+
+Now, we are going to perform CCA, find the best buddies or anchors and filter incorrect anchors. 
+```{r eval=FALSE}
+# Find best buddies - can take a while to run
+integ_anchors <- FindIntegrationAnchors(object.list = split_seurat, 
+                                        normalization.method = "SCT", 
+                                        anchor.features = integ_features)
+```
+
+Finally, we can integrate across conditions.
+```{r eval=FALSE}
+# Integrate across conditions
+integrated <- IntegrateData(anchorset = integ_anchors, normalization.method = "SCT")
+integrated
+```
+
+```{r include=FALSE}
+integrated <- readRDS("../data/SeuratObj/integrated.rds")
+```
+
+# 4. Dimensional reduction
+## 4.1 PCA
+```{r}
+# Run PCA
+integrated <- RunPCA(object = integrated, npcs = 30, verbose = F)
+ElbowPlot(integrated, ndims = 30)
+```
+
+```{r fig.width=12}
+pc.num=1:25
+
+# Plot PCA
+PCAPlot(integrated, split.by = "orig.ident")  
+```
+
+## 4.2 UMAP
+```{r}
+# Run UMAP
+integrated <- RunUMAP(integrated, dims = pc.num, reduction = "pca")
+
+# Plot UMAP                             
+DimPlot(integrated, group.by = "orig.ident") 
+```
+
+## 4.2 tSNE
+```{r}
+# Run tSNE
+integrated <- RunTSNE(object = integrated, dims.use = pc.num)
+
+# Plot tSNE
+DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
+```
+
+```{r fig.width=12}
+FeaturePlot(object = integrated, features = c("GPNMB"), cols = c("grey", "blue"), reduction = "tsne",split.by = "orig.ident")
+```
+
+```{r fig.width=12}
+FeaturePlot(object = integrated, features = c("CD3D"), cols = c("grey", "blue"), reduction = "tsne",split.by = "orig.ident")
+```
+
+
+```{r fig.width=12,fig.height=7}
+FeaturePlot(object = integrated, features = c("CD8A", "CD8B", "ZNF683"), cols = c("grey", "blue"), reduction = "tsne", split.by = "orig.ident")
+```
+
+# 5. Clustering cells based on top PCs
+## 5.1 Identify significant PCs
+```{r}
+# Plot the elbow plot
+ElbowPlot(object = integrated, ndims = 30)
+```
+
+## 5.2 Cluster the cells
+```{r}
+# Determine the K-nearest neighbor graph
+integrated <- FindNeighbors(object = integrated, dims = pc.num)
+```
+
+```{r fig.height=8}
+checkRes <- FindClusters(object = integrated, resolution = c(seq(.1,1.6,.2)), verbose = F)
+clustree(checkRes@meta.data,prefix = "integrated_snn_res.")
+```
 
 ```{r}
-features <- SelectIntegrationFeatures(object.list = list)
-all.anchors <- FindIntegrationAnchors(object.list = list, anchor.features = features)
-finalData <- IntegrateData(anchorset = all.anchors)
-finalData
-# Set integrated as the active assay
-# DefaultAssay(finalData) <- "integrated"
+integrated <- FindClusters(integrated, resolution = 0.7)
+```
+
+```{r}
+# Plot the UMAP
+DimPlot(integrated, reduction = "umap", label = TRUE, label.size = 6)
+```
+
+```{r fig.width=12}
+# Plot the UMAP
+DimPlot(integrated, reduction = "umap", label = TRUE, label.size = 6, split.by = "orig.ident")
 ```
