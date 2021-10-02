@@ -21,6 +21,14 @@ knitr::opts_chunk$set(
 )
 ```
 
+---
+
+Data Description:  
+1. 
+ATTENTION: 合并数据集时因为Barcode重复，有损失部分细胞(WARNING: )
+
+---
+
 # 1. Initialize Data
 ```{r}
 library(Seurat)
@@ -38,10 +46,10 @@ raw.p1Blood <- read.table("data/rawMatix/patient_1/PDR-Blood-0426_matrix.tsv", h
 raw.p2ERM <- read.table("data/rawMatix/patient_2/PDR-ERM_matrix.tsv", header = T) %>% CreateSeuratObject(project = "p2-ERM")
 raw.p2Blood <- read.table("data/rawMatix/patient_2/PDR-Blood_matrix.tsv", header = T) %>% CreateSeuratObject(project = "p2-Blood")
 
-raw.p3ERM <- read.table("data/rawMatix/patient_3/PDR-ERM-0609_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p3-ERM")
-raw.p3Blood <- read.table("data/rawMatix/patient_3/PDR-blood-0609_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p3-Blood")
+raw.p3ERM <- read.table("data/rawMatix/patient_3/PDR-ERM-0609_matrix.tsv",header = T) %>% CreateSeuratObject(project = "p3-ERM")
+raw.p3Blood <- read.table("data/rawMatix/patient_3/PDR-blood-0609_matrix.tsv",header = T) %>% CreateSeuratObject(project = "p3-Blood")
 
-raw.p4ERM <- read.table("data/rawMatix/patient_4/PDR-ERM-210630_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p4-ERM")
+raw.p4ERM <- read.table("data/rawMatix/patient_4/PDR-ERM-210630_matrix.tsv",header = T) %>% CreateSeuratObject(project = "p4-ERM")
 raw.p4Blood <- read.table("data/rawMatix/patient_4/PDR-B-210630_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p4-Blood")
 
 raw.ctl1.Singleron <- read.table("data/rawMatix/control_PBMC/mid-aged/DZ0804_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p4-ERM")
@@ -73,8 +81,14 @@ raw.Singleron <- merge(x = raw.p1ERM, y = c(raw.p1Blood, raw.p2ERM, raw.p2Blood,
 raw.10X <- merge(x = raw.ctl2.10X, y = c(raw.ctl3.10X,raw.ctl4.10X, raw.ctl5.10X, raw.ctl6.10X))
 ```
 
->Some cell names are duplicated across objects provided. Renaming to enforce unique cell names.  
->Loss of specific data?  
+>Warning message:  
+>In CheckDuplicateCellNames(object.list = objects) :
+Some cell names are duplicated across objects provided. Renaming to enforce unique cell names. 
+>  
+>Replied by satijalab Collaborator:  
+>there is a function called `RenameCells` in Seurat v3 that can be used to rename cells. However, this is done for you automatically in `FindIntegrationAnchors` if you have duplicate cell names in the groups (notice you get a warning rather than an error).
+
+
 
 ## 1.3 Check Data
 
@@ -142,6 +156,7 @@ library(DoubletFinder)
 library(patchwork)
 library(ggraph)
 library(clustree)
+library(ggsci)
 ```
 
 ### 2.2.1 Pre-process Seurat object
@@ -181,7 +196,7 @@ sweep.stats <- summarizeSweep(sweep.res.list, GT = F)
 ```
 
 ```{r include=FALSE}
-load("../data/tmp.data/sweepStats.RData")
+load("../data/tmp.data/sweepStats-Singleron.RData")
 ```
 
 ```{r}
@@ -197,7 +212,11 @@ pK_bcmvn
 
 ### 2.2.3 Homotypic Doublet Proportion Estimate
 
->doublet rate: https://singleronbio.com/product/?type=detail&id=8
+doublet rate: https://www.singleronbio.com/resources/list-19.html. Because of the various distribution of cell number detected, we set 2.68% based on the Standard Chip, just in case we miss important data especially p2-ERM(589 cells). 
+
+```{r echo=FALSE,out.width = '75%',fig.align = "center"}
+knitr::include_graphics("../data/picLoaded/Singleron-doubletRate.png")
+```
 
 ```{r}
 # Estimate the percentage of homotypic doublets
@@ -212,25 +231,35 @@ nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
 ### 2.2.4 Run DoubletFinder
 
 ```{r eval=FALSE}
-raw.Singleron <- doubletFinder_v3(raw.Singleron, PCs = pc.num, pN = 0.25, pK = pK_bcmvn, 
-                             nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
+raw.Singleron <- doubletFinder_v3(raw.Singleron, PCs = pc.num, pN = 0.25, pK = pK_bcmvn, nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
 ```
 
 ```{r include=FALSE, eval=TRUE}
-raw.Singleron <- readRDS("../data/SeuratObj/merged.RDS")
+raw.Singleron <- readRDS("data/tmp.data/doublet-Singleron.RDS")
 ```
 
 ```{r}
 # Present the res, classification info is saved in meta.data
 DF.name <- colnames(raw.Singleron@meta.data)[grepl("DF.classification", colnames(raw.Singleron@meta.data))]
 # Visualization
-cowplot::plot_grid(ncol = 2, DimPlot(raw.Singleron, group.by = "orig.ident") + NoAxes(), 
-                   DimPlot(raw.Singleron, group.by = DF.name) + NoAxes())
+cowplot::plot_grid(ncol = 2, DimPlot(raw.Singleron, group.by = "orig.ident") + NoAxes(),DimPlot(raw.Singleron, group.by = DF.name) + NoAxes())
 ```
 
 
 ```{r}
-DF.name <- colnames(raw.Singleron@meta.data)[grepl("DF.classification", colnames(raw.Singleron@meta.data))]
+raw.Singleron$DF.classifications_0.25_0.22_1336 <- factor(raw.Singleron$DF.classifications_0.25_0.22_1336)
+
+raw.Singleron@meta.data %>% 
+  	ggplot(aes(x=orig.ident, fill=DF.classifications_0.25_0.22_1336)) + 
+  	geom_bar(position = "stack") +
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells")+
+    scale_fill_npg()
+```
+
+```{r}
 raw.Singleron.singlet <- raw.Singleron[, raw.Singleron@meta.data[, DF.name] == "Singlet"]
 raw.Singleron.singlet
 ```
@@ -289,15 +318,13 @@ raw.Singleron.singlet@meta.data %>%
   	geom_density(alpha = 0.2) + 
   	theme_classic() +
   	scale_x_log10() + 
-  	geom_vline(xintercept = 300)
+  	geom_vline(xintercept = 200)
 ```
 
 
 **UMIs vs. genes detected**  
 Cells that are poor quality are likely to have low genes and UMIs per cell, and correspond to the data points in the bottom left quadrant of the plot. Good cells will generally exhibit both higher number of genes per cell and higher numbers of UMIs. Cells have a high number of UMIs but only a few number of genes could be dying cells, but also could represent a population of a low complexity celltype (i.e red blood cells).  
 
-
-Mitochondrial read fractions are only high in particularly low count cells with few detected genes. This could be indicative of damaged/dying cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus, only mRNA located in the mitochondria is still conserved.   
 
 * Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
 ```{r}
@@ -310,7 +337,7 @@ raw.Singleron.singlet@meta.data %>%
   	scale_y_log10() + 
   	theme_classic() +
   	geom_vline(xintercept = 500) +
-  	geom_hline(yintercept = 250) +
+  	geom_hline(yintercept = 200) +
   	facet_wrap(~orig.ident)
 ```
 
@@ -327,7 +354,7 @@ raw.Singleron.singlet@meta.data %>%
 ```
 
 **Mitochondrial counts ratio**
-This metric can identify whether there is a large amount of mitochondrial contamination from dead or dying cells.
+Mitochondrial read fractions are only high in particularly low count cells with few detected genes. This could be indicative of damaged/dying cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus, only mRNA located in the mitochondria is still conserved.  
 
 * Visualize the distribution of mitochondrial gene expression detected per cell
 ```{r}
@@ -355,7 +382,7 @@ raw.Singleron.singlet@meta.data %>%
 
 
 **Hemoglobin counts ratio**
-This metric can identify whether there is a large amount of hemoglobin contamination from red blood cell leak.
+Check hemoglobin contamination from red blood cell leak.
 
 * Visualize the distribution of mitochondrial gene expression detected per cell
 ```{r}
@@ -370,8 +397,9 @@ raw.Singleron.singlet@meta.data %>%
 
 ## 2.4 Filtering
 ### 2.4.1 Cell-level filtering
+
 * nCount > 500  
-* nFeature > 250  
+* nFeature > 200 (p2-ERM 589 cells, preserve the data)  
 * log10GenesPerUMI > 0.8  
 * percent.mt < 0.2  
 * percent.ribo < 0.01  
@@ -380,23 +408,17 @@ raw.Singleron.singlet@meta.data %>%
 ```{r}
 filteredData <- subset(x = raw.Singleron.singlet, 
                          subset= (nCount_RNA >= 500) & 
-                           (nFeature_RNA >= 250) & 
+                           (nFeature_RNA >= 200) & 
                            (log10GenesPerUMI > 0.80) & 
                            (percent.mt < 0.20) & 
                            (percent.ribo < 0.01) & 
                            (percent.hb < 0.25))
+filteredData
 ```
 
 ### 2.4.2 Gene-level filtering
-```{r eval=FALSE}
-par(mar = c(4, 8, 2, 1))
-C <- filteredData@assays$RNA@counts
-C <- Matrix::t(Matrix::t(C)/Matrix::colSums(C)) * 100
-most_expressed <- order(apply(C, 1, median), decreasing = T)[20:1]
-boxplot(as.matrix(t(C[most_expressed,])), cex = 0.1, las = 1, xlab = "% total count per cell", col = (scales::hue_pal())(20)[20:1], horizontal = TRUE)
-```
 
-First we will remove genes that have zero expression in all cells. Additionally, we will perform some filtering by prevalence. If a gene is only expressed in a handful of cells, it is not particularly meaningful. For our data we choose to **keep only genes which are expressed in 5 or more cells**.
+First we will remove genes that have zero expression in all cells. Additionally, we will perform some filtering by prevalence. If a gene is only expressed in a handful of cells, it is not particularly meaningful. For our data we choose to **keep only genes which are expressed in 3 or more cells**.
 
 ```{r}
 # Extract counts
@@ -405,14 +427,518 @@ counts <- GetAssayData(object = filteredData, slot = "counts",assay = "RNA")
 # Output a logical vector for every gene on whether the more than zero counts per cell
 nonzero <- counts > 0
 
-# Sums all TRUE values and returns TRUE if more than 5 TRUE values per gene
-keep_genes <- Matrix::rowSums(nonzero) >= 5
+# Sums all TRUE values and returns TRUE if more than 3 TRUE values per gene
+keep_genes <- Matrix::rowSums(nonzero) >= 3
 
 # Only keeping those genes expressed in more than 10 cells
 filtered_counts <- counts[keep_genes, ]
 
 # Reassign to filtered Seurat object
-filteredData2 <- CreateSeuratObject(filtered_counts, meta.data = filteredData@meta.data)
-filteredData2
+clean.Singleron.singlet <- CreateSeuratObject(filtered_counts, meta.data = filteredData@meta.data)
+
+clean.Singleron.singlet
 ```
 
+
+# 3. QC--10X
+## 3.1 Data examining
+cell number:    
+```{r}
+dim(raw.10X)
+```
+
+Counts per cell:    
+```{r}
+counts_per_cell <- Matrix::colSums(raw.10X)
+hist(log10(counts_per_cell+1),main='counts per cell',col='Thistle')
+```
+
+Genes per cell:    
+```{r}
+genes_per_cell <- Matrix::colSums(raw.10X@assays$RNA@counts > 0)
+hist(log10(genes_per_cell+1), main='genes per cell', col='Thistle')
+```
+
+## 3.2 Remove Doublets
+
+```{r}
+library(DoubletFinder)
+library(patchwork)
+library(ggraph)
+library(clustree)
+library(ggsci)
+```
+
+### 3.2.1 Pre-process Seurat object
+
+```{r message=FALSE, warning=FALSE}
+raw.10X <- SCTransform(raw.10X, verbose = F)
+raw.10X <- RunPCA(raw.10X, npcs = 30, verbose = F)
+ElbowPlot(raw.10X,ndims = 30)
+```
+
+```{r}
+# Set dim 1:20
+pc.num.10X=1:20
+```
+
+```{r}
+raw.10X <- RunUMAP(raw.10X, dims=pc.num.10X,verbose = F)
+raw.10X <- FindNeighbors(raw.10X, reduction = "pca", dims = pc.num.10X)
+```
+
+```{r fig.height=8}
+checkRes <- FindClusters(object = raw.10X, resolution = c(seq(.1,1.6,.2)), verbose = F)
+clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
+```
+
+```{r}
+raw.10X <- FindClusters(raw.10X, resolution = 0.5)
+```
+
+### 3.2.2 pK Identification
+
+```{r eval=FALSE}
+# Optimize the parameters
+sweep.res.list <- paramSweep_v3(raw.10X, PCs = pc.num.10X, sct = T)
+# Use log transform
+sweep.stats <- summarizeSweep(sweep.res.list, GT = F)
+```
+
+```{r include=FALSE}
+load("data/tmp.data/sweepStats-10X.RData")
+```
+
+```{r}
+# Show the best parameter
+bcmvn <- find.pK(sweep.stats)
+```
+
+```{r}
+# Extract the best pK
+pK_bcmvn <- bcmvn$pK[which.max(bcmvn$BCmetric)] %>% as.character() %>% as.numeric()
+pK_bcmvn
+```
+
+### 3.2.3 Homotypic Doublet Proportion Estimate
+
+>doublet rate is based on 10X Genomics User Guide
+
+```{r}
+# Estimate the percentage of homotypic doublets
+homotypic.prop <- modelHomotypic(raw.10X$seurat_clusters)
+
+DoubletRate = 0.09
+nExp_poi <- round(DoubletRate*ncol(raw.10X)) 
+# Adjust for homotypic doublets
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+```
+
+### 3.2.4 Run DoubletFinder
+
+```{r eval=FALSE}
+raw.10X <- doubletFinder_v3(raw.10X, PCs = pc.num.10X, pN = 0.25, pK = pK_bcmvn, nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
+```
+
+```{r include=FALSE, eval=TRUE}
+raw.10X <- readRDS("data/tmp.data/doublet-10X.RDS")
+```
+
+```{r}
+# Present the res, classification info is saved in meta.data
+DF.name <- colnames(raw.10X@meta.data)[grepl("DF.classification", colnames(raw.10X@meta.data))]
+# Visualization
+cowplot::plot_grid(ncol = 2, DimPlot(raw.10X, group.by = "orig.ident") + NoAxes(),DimPlot(raw.10X, group.by = DF.name) + NoAxes())
+```
+
+
+```{r}
+raw.10X@meta.data[,DF.name] <- factor(raw.10X@meta.data[, DF.name])
+
+raw.10X@meta.data %>% 
+  ggplot(aes(x=orig.ident, fill=DF.classifications_0.25_0.005_1882)) + 
+  geom_bar(position = "stack") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  ggtitle("NCells")+
+  scale_fill_npg()
+```
+
+```{r}
+raw.10X.singlet <- raw.10X[, raw.10X@meta.data[, DF.name] == "Singlet"]
+raw.10X.singlet
+```
+
+
+## 3.3 Calculate QC
+### 3.3.1 Generating quality metrics
+
+**mitochondrial ratio:**
+```{r}
+raw.10X.singlet[["percent.mt"]] <- PercentageFeatureSet(object = raw.10X.singlet, pattern = "^MT-", assay = "RNA")
+raw.10X.singlet$percent.mt <- raw.10X.singlet@meta.data$percent.mt / 100
+```
+
+**ribosome ratio:** 
+```{r}
+raw.10X.singlet[["percent.ribo"]] <- PercentageFeatureSet(object = raw.10X.singlet, pattern = "^RP[SL]", assay = "RNA")
+raw.10X.singlet$percent.ribo <- raw.10X.singlet@meta.data$percent.ribo / 100
+```
+
+**hemoglobin ratio:**
+```{r}
+raw.10X.singlet[["percent.hb"]] <- PercentageFeatureSet(object = raw.10X.singlet, pattern = "^HB[^(P)]", assay = "RNA")
+raw.10X.singlet$percent.ribo <- raw.10X.singlet@meta.data$percent.ribo / 100
+```
+
+**number of genes detected per UMI:**    
+  represent the complexity of our dataset (more genes detected per UMI, more complex our data)
+```{r}
+raw.10X.singlet$log10GenesPerUMI <- log10(raw.10X.singlet$nFeature_RNA) / log10(raw.10X.singlet$nCount_RNA)
+```
+
+### 3.3.2 Assessing the quality metrics:   
+
+**UMI counts (transcripts) per cell**  
+  The UMI counts per cell should generally be above 500, that is the low end of what we expect. If UMI counts are between 500-1000 counts, it is usable but the cells probably should have been sequenced more deeply.    
+
+* Visualize the number UMIs/transcripts per cell    
+```{r}
+raw.10X.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+```
+
+**Genes detected per cell**  
+  For high quality data, the proportional histogram should contain a single large peak that represents cells that were encapsulated. 
+
+* Visualize the distribution of genes detected per cell via histogram
+```{r}
+raw.10X.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=nFeature_RNA, fill= orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  theme_classic() +
+  scale_x_log10() + 
+  geom_vline(xintercept = 300)
+```
+
+
+**UMIs vs. genes detected**  
+  Cells that are poor quality are likely to have low genes and UMIs per cell, and correspond to the data points in the bottom left quadrant of the plot. Good cells will generally exhibit both higher number of genes per cell and higher numbers of UMIs. Cells have a high number of UMIs but only a few number of genes could be dying cells, but also could represent a population of a low complexity celltype (i.e red blood cells).  
+
+
+Mitochondrial read fractions are only high in particularly low count cells with few detected genes. This could be indicative of damaged/dying cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus, only mRNA located in the mitochondria is still conserved.   
+
+* Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+```{r}
+raw.10X.singlet@meta.data %>% 
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  geom_point() + 
+  scale_colour_gradient(low = "gray90", high = "black") +
+  stat_smooth(method=lm) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 500) +
+  geom_hline(yintercept = 300) +
+  facet_wrap(~orig.ident)
+```
+
+**Complexity**
+  Outlier cells in these samples might be cells that have a less complex RNA species than other cells. Sometimes we can detect contamination with low complexity cell types like red blood cells via this metric. Generally, we expect the novelty score to be above 0.80.
+
+* Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+```{r}
+raw.10X.singlet@meta.data %>%
+  ggplot(aes(x=log10GenesPerUMI, color = orig.ident, fill=orig.ident)) +
+  geom_density(alpha = 0.2) +
+  theme_classic() +
+  geom_vline(xintercept = 0.8)
+```
+
+**Mitochondrial counts ratio**
+  This metric can identify whether there is a large amount of mitochondrial contamination from dead or dying cells.
+
+* Visualize the distribution of mitochondrial gene expression detected per cell
+```{r}
+raw.10X.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=percent.mt, fill=orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 0.2)
+```
+
+
+**Ribosome counts ratio**
+  This metric can identify whether there is a large amount of ribosome contamination from dead or dying cells.
+
+* Visualize the distribution of ribosome gene expression detected per cell
+```{r}
+raw.10X.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=percent.ribo, fill=orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 0.01)
+```
+
+
+**Hemoglobin counts ratio**
+  This metric can identify whether there is a large amount of hemoglobin contamination from red blood cell leak.
+
+* Visualize the distribution of mitochondrial gene expression detected per cell
+```{r}
+raw.10X.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=percent.hb, fill=orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 0.25)
+```
+
+
+## 3.4 Filtering
+### 3.4.1 Cell-level filtering
+
+* nCount > 500  
+* nFeature > 300
+* log10GenesPerUMI > 0.8  
+* percent.mt < 0.2  
+* percent.ribo < 0.01  
+* percent.hb < 0.25  
+
+```{r}
+filteredData <- subset(x = raw.10X.singlet, 
+                       subset= (nCount_RNA >= 500) & 
+                         (nFeature_RNA >= 300) & 
+                         (log10GenesPerUMI > 0.80) & 
+                         (percent.mt < 0.20) & 
+                         (percent.ribo < 0.01) & 
+                         (percent.hb < 0.25))
+filteredData
+```
+
+### 3.4.2 Gene-level filtering
+
+First we will remove genes that have zero expression in all cells. Additionally, we will perform some filtering by prevalence. If a gene is only expressed in a handful of cells, it is not particularly meaningful. For our data we choose to **keep only genes which are expressed in 3 or more cells**.
+
+```{r}
+# Extract counts
+counts <- GetAssayData(object = filteredData, slot = "counts",assay = "RNA")
+
+# Output a logical vector for every gene on whether the more than zero counts per cell
+nonzero <- counts > 0
+
+# Sums all TRUE values and returns TRUE if more than 3 TRUE values per gene
+keep_genes <- Matrix::rowSums(nonzero) >= 3
+
+# Only keeping those genes expressed in more than 10 cells
+filtered_counts <- counts[keep_genes, ]
+
+# Reassign to filtered Seurat object
+clean.10X.singlet <- CreateSeuratObject(filtered_counts, meta.data = filteredData@meta.data)
+
+clean.10X.singlet
+```
+
+# 4. Integration
+## 4.1 Cell cycle scoring check
+```{r}
+cell_cycle_genes <- read.csv("../data/cell-cycle/Homo_sapiens.csv")
+head(cell_cycle_genes)
+```
+
+ID transfer via annotation databases
+```{r}
+library(AnnotationHub)
+library(ensembldb)
+```
+
+* Query Ensembl 
+```{r eval=FALSE}
+# Connect to AnnotationHub
+ah <- AnnotationHub()
+
+# Access the Ensembl database for organism
+ahDb <- query(ah, 
+              pattern = c("Homo sapiens", "EnsDb"), 
+              ignore.case = TRUE)
+
+# Acquire the latest annotation files
+id <- ahDb %>%
+        mcols() %>%
+        rownames() %>%
+        tail(n = 1)
+
+# Download the appropriate Ensembldb database
+edb <- ah[[id]]
+
+# Extract gene-level information from database
+annotations <- genes(edb, 
+                     return.type = "data.frame")
+
+# Select annotations of interest
+annotations <- annotations %>%
+        dplyr::select(gene_id, gene_name, seq_name, gene_biotype, description)
+```
+
+```{r eval=TRUE, include=FALSE}
+load("../data/annotation/annotations.RData")
+```
+
+* Annotations to get the corresponding gene names for the Ensembl IDs of the cell cycle genes
+```{r}
+# Get gene names for Ensembl IDs for each gene
+cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+
+# Acquire the S phase genes
+s_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "S") %>%
+        pull("gene_name")
+        
+# Acquire the G2M phase genes        
+g2m_genes <- cell_cycle_markers %>%
+        dplyr::filter(phase == "G2/M") %>%
+        pull("gene_name")
+```
+
+## 4.2 SCTransform
+
+```{r}
+split_seurat <- SplitObject(filteredData2, split.by = "orig.ident")
+split_seurat
+```
+
+Perform the cell cycle scoring and sctransform on all samples.
+```{r}
+for (i in 1:length(split_seurat)) {
+    split_seurat[[i]] <- NormalizeData(split_seurat[[i]], verbose = F)
+    split_seurat[[i]] <- CellCycleScoring(split_seurat[[i]], g2m.features=g2m_genes, s.features=s_genes)
+    split_seurat[[i]] <- SCTransform(split_seurat[[i]], vars.to.regress = c("percent.mt"), variable.features.n = 5000,  verbose = F, seed.use = 27)
+}
+```
+
+## 4.2 Integration
+
+First, we need to specify that we want to use 3000 most variable genes identified by SCTransform for the integration. By default, this function only selects the top 2000 genes.
+```{r eval=FALSE}
+# Select the most variable features to use for integration
+integ_features <- SelectIntegrationFeatures(object.list = split_seurat, nfeatures = 3000) 
+```
+
+Then, we need to prepare the SCTransform object for integration.
+```{r eval=FALSE}
+# Prepare the SCT list object for integration
+split_seurat <- PrepSCTIntegration(object.list = split_seurat, 
+                                   anchor.features = integ_features)
+```
+
+Now, we are going to perform CCA, find the best buddies or anchors and filter incorrect anchors. 
+```{r eval=FALSE}
+# Find best buddies - can take a while to run
+integ_anchors <- FindIntegrationAnchors(object.list = split_seurat, 
+                                        normalization.method = "SCT", 
+                                        anchor.features = integ_features)
+```
+
+Finally, we can integrate across conditions.
+```{r eval=FALSE}
+# Integrate across conditions
+integrated <- IntegrateData(anchorset = integ_anchors, normalization.method = "SCT")
+integrated
+```
+
+```{r include=FALSE}
+integrated <- readRDS("../data/SeuratObj/integrated.rds")
+```
+
+# 5. Dimensional reduction
+## 5.1 PCA
+```{r}
+# Run PCA
+integrated <- RunPCA(object = integrated, npcs = 30, verbose = F)
+ElbowPlot(integrated, ndims = 30)
+```
+
+```{r fig.width=12}
+pc.num=1:25
+
+# Plot PCA
+PCAPlot(integrated, split.by = "orig.ident")  
+```
+
+## 5.2 UMAP
+```{r}
+# Run UMAP
+integrated <- RunUMAP(integrated, dims = pc.num, reduction = "pca")
+
+# Plot UMAP                             
+DimPlot(integrated, group.by = "orig.ident") 
+```
+
+## 5.2 tSNE
+```{r}
+# Run tSNE
+integrated <- RunTSNE(object = integrated, dims.use = pc.num)
+
+# Plot tSNE
+DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
+```
+
+```{r fig.width=12}
+FeaturePlot(object = integrated, features = c("GPNMB"), cols = c("grey", "blue"), reduction = "tsne",split.by = "orig.ident")
+```
+
+```{r fig.width=12}
+FeaturePlot(object = integrated, features = c("CD3D"), cols = c("grey", "blue"), reduction = "tsne",split.by = "orig.ident")
+```
+
+
+```{r fig.width=12,fig.height=7}
+FeaturePlot(object = integrated, features = c("CD8A", "CD8B", "ZNF683"), cols = c("grey", "blue"), reduction = "tsne", split.by = "orig.ident")
+```
+
+# 6. Clustering cells based on top PCs
+## 6.1 Identify significant PCs
+```{r}
+# Plot the elbow plot
+ElbowPlot(object = integrated, ndims = 30)
+```
+
+## 6.2 Cluster the cells
+```{r}
+# Determine the K-nearest neighbor graph
+integrated <- FindNeighbors(object = integrated, dims = pc.num)
+```
+
+```{r fig.height=8}
+checkRes <- FindClusters(object = integrated, resolution = c(seq(.1,1.6,.2)), verbose = F)
+clustree(checkRes@meta.data,prefix = "integrated_snn_res.")
+```
+
+```{r}
+integrated <- FindClusters(integrated, resolution = 0.7)
+```
+
+```{r}
+# Plot the UMAP
+DimPlot(integrated, reduction = "umap", label = TRUE, label.size = 6)
+```
+
+```{r fig.width=12}
+# Plot the UMAP
+DimPlot(integrated, reduction = "umap", label = TRUE, label.size = 6, split.by = "orig.ident")
+```
+
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
