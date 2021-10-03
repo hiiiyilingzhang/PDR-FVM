@@ -4,11 +4,13 @@ author: "zhangyl"
 date: "`r Sys.Date()`"
 output:
   rmdformats::readthedown:
-  self contained: true
-  thumbnails: true
-  lightbox: true
-  gallery: false
-  highlight: tango
+    self contained: true
+    thumbnails: false
+    lightbox: true
+    df_print: paged
+    code_folding: show
+    gallery: false
+    highlight: tango
 editor_options: 
   chunk_output_type: console
 ---
@@ -19,7 +21,7 @@ knitr::opts_chunk$set(
 	message = FALSE,
 	warning = FALSE,
 	fig.align = "center",
-  fig.width = 8
+  fig.width = 6
 )
 ```
 
@@ -40,6 +42,7 @@ Data Description:
 library(Seurat)
 library(dplyr)
 library(ggplot2)
+library(cowplot)
 ```
 
 ## 1.1 Read in and Initialize Seurat Obejct
@@ -160,7 +163,7 @@ library(ggsci)
 
 ### 2.2.1 Pre-process Seurat object
 
-```{r message=FALSE, warning=FALSE,fig.width = 6}
+```{r message=FALSE, warning=FALSE,fig.width = 5}
 raw.Singleron <- SCTransform(raw.Singleron, verbose = F)
 raw.Singleron <- RunPCA(raw.Singleron, npcs = 30, verbose = F)
 ElbowPlot(raw.Singleron,ndims = 30)
@@ -176,7 +179,7 @@ raw.Singleron <- RunUMAP(raw.Singleron, dims=pc.num,verbose = F)
 raw.Singleron <- FindNeighbors(raw.Singleron, reduction = "pca", dims = pc.num)
 ```
 
-```{r fig.height=8}
+```{r fig.height=8,fig.width = 8}
 checkRes <- FindClusters(object = raw.Singleron, resolution = c(seq(.1,1.4,.2)), verbose = F)
 clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
 ```
@@ -198,7 +201,7 @@ sweep.stats <- summarizeSweep(sweep.res.list, GT = F)
 load("../data/tmp.data/sweepStats-Singleron.RData")
 ```
 
-```{r}
+```{r fig.width = 4}
 # Show the best parameter
 bcmvn <- find.pK(sweep.stats)
 ```
@@ -213,7 +216,7 @@ pK_bcmvn
 
 doublet rate: https://www.singleronbio.com/resources/list-19.html. Because of the various distribution of cell number detected, we set 2.68% based on the Standard Chip, just in case we miss important data especially p2-ERM(589 cells). 
 
-```{r echo=FALSE,out.width = '75%',fig.align = "center"}
+```{r echo=FALSE,out.width = '90%',fig.align = "center"}
 knitr::include_graphics("../data/picLoaded/Singleron-doubletRate.png")
 ```
 
@@ -237,7 +240,7 @@ raw.Singleron <- doubletFinder_v3(raw.Singleron, PCs = pc.num, pN = 0.25, pK = p
 raw.Singleron <- readRDS("../data/tmp.data/doublet-Singleron.RDS")
 ```
 
-```{r}
+```{r fig.width=10}
 # Present the res, classification info is saved in meta.data
 DF.name <- colnames(raw.Singleron@meta.data)[grepl("DF.classification", colnames(raw.Singleron@meta.data))]
 # Visualization
@@ -326,7 +329,7 @@ Cells that are poor quality are likely to have low genes and UMIs per cell, and 
 
 
 * Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
-```{r}
+```{r fig.width = 8}
 raw.Singleron.singlet@meta.data %>% 
   	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
   	geom_point() + 
@@ -471,7 +474,7 @@ library(ggsci)
 
 ### 3.2.1 Pre-process Seurat object
 
-```{r message=FALSE, warning=FALSE,fig.width = 6}
+```{r message=FALSE, warning=FALSE,fig.width = 5}
 raw.10X <- SCTransform(raw.10X, verbose = F)
 raw.10X <- RunPCA(raw.10X, npcs = 30, verbose = F)
 ElbowPlot(raw.10X,ndims = 30)
@@ -487,7 +490,7 @@ raw.10X <- RunUMAP(raw.10X, dims=pc.num.10X,verbose = F)
 raw.10X <- FindNeighbors(raw.10X, reduction = "pca", dims = pc.num.10X)
 ```
 
-```{r fig.height=8}
+```{r fig.height=8,fig.width = 8}
 checkRes <- FindClusters(object = raw.10X, resolution = c(seq(.1,1.4,.2)), verbose = F)
 clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
 ```
@@ -509,7 +512,7 @@ sweep.stats <- summarizeSweep(sweep.res.list, GT = F)
 load("../data/tmp.data/sweepStats-10X.RData")
 ```
 
-```{r}
+```{r fig.width = 4}
 # Show the best parameter
 bcmvn <- find.pK(sweep.stats)
 ```
@@ -541,10 +544,10 @@ raw.10X <- doubletFinder_v3(raw.10X, PCs = pc.num.10X, pN = 0.25, pK = pK_bcmvn,
 ```
 
 ```{r include=FALSE, eval=TRUE}
-raw.10X <- readRDS("data/tmp.data/doublet-10X.RDS")
+raw.10X <- readRDS("../data/tmp.data/doublet-10X.RDS")
 ```
 
-```{r}
+```{r fig.width = 10}
 # Present the res, classification info is saved in meta.data
 DF.name <- colnames(raw.10X@meta.data)[grepl("DF.classification", colnames(raw.10X@meta.data))]
 # Visualization
@@ -629,7 +632,7 @@ raw.10X.singlet@meta.data %>%
 **UMIs vs. genes detected**  
 
 * Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
-```{r}
+```{r fig.width = 8}
 raw.10X.singlet@meta.data %>% 
   ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
   geom_point() + 
@@ -741,8 +744,8 @@ clean.10X.singlet
 # 4. Integration
 
 **Harmony**  
->https://github.com/immunogenomics/harmony  
->Overview of Harmony algorithm: PCA embeds cells into a space with reduced dimensionality. Harmony accepts the cell coordinates in this reduced space and runs an iterative algorithm to adjust for dataset specific effects.  
+> https://github.com/immunogenomics/harmony  
+> Overview of Harmony algorithm: PCA embeds cells into a space with reduced dimensionality. Harmony accepts the cell coordinates in this reduced space and runs an iterative algorithm to adjust for dataset specific effects.  
 
 ## 4.1 Cell cycle scoring check
 ```{r}
@@ -785,7 +788,7 @@ annotations <- annotations %>%
 ```
 
 ```{r eval=TRUE, include=FALSE}
-load("data/annotation/annotations.RData")
+load("../data/annotation/annotations.RData")
 ```
 
 * Annotations to get the corresponding gene names for the Ensembl IDs of the cell cycle genes
@@ -820,9 +823,14 @@ mergedData <- NormalizeData(mergedData, verbose = F) %>%
 mergedData <- readRDS("../data/tmp.data/mergedData-not-harmony.RDS")
 ```
 
-```{r}
-VlnPlot(mergedData, features = c("S.Score", "G2M.Score"), group.by = "Status", ncol = 4, pt.size = 0.1)
+```{r fig.width = 10}
+VlnPlot(mergedData, features = "S.Score", group.by = "orig.ident", pt.size = 0.1)
 ```
+
+```{r fig.width = 10}
+VlnPlot(mergedData, features = "G2M.Score", group.by = "orig.ident", pt.size = 0.1)
+```
+
 
 ```{r eval=FALSE}
 mergedData <- SCTransform(mergedData, vars.to.regress = c("percent.mt"), variable.features.n = 3000, verbose = F, seed.use = 27)
@@ -830,11 +838,11 @@ mergedData <- SCTransform(mergedData, vars.to.regress = c("percent.mt"), variabl
 mergedData <- RunPCA(mergedData, npcs = 30, verbose = FALSE)
 ```
 
-## 4.2 Integration
+## 4.3 Integration
 
 * Add metadata
 ```{r}
-sampledata <- read.table("data/tmp.data/sampleData.txt", header = T, sep = "\t")
+sampledata <- read.table("../data/tmp.data/sampleData.txt", header = T, sep = "\t")
 head(sampledata)
 ```
 
@@ -863,7 +871,7 @@ integrated
 head(integrated@meta.data)
 ```
 
-## 4.3 Check integration
+## 4.4 Check integration
 ```{r}
 # Run tSNE
 integrated <- RunTSNE(object = integrated, dims.use = 25,reduction = "harmony")
@@ -892,7 +900,7 @@ ERMData
 ```
 
 ## 5.1 PCA
-```{r fig.width = 6}
+```{r fig.width = 5}
 # Run PCA
 ERMData <- RunPCA(object = ERMData, npcs = 30, verbose = F)
 ElbowPlot(ERMData, ndims = 30)
@@ -912,7 +920,7 @@ ERMData <- RunUMAP(ERMData, dims = pc.num, reduction = "harmony")
 DimPlot(ERMData, group.by = "SampleName") 
 ```
 
-## 5.2 tSNE
+## 5.3 tSNE
 ```{r}
 # Run tSNE
 ERMData <- RunTSNE(object = ERMData, dims.use = pc.num,reduction = "harmony")
@@ -925,7 +933,7 @@ DimPlot(object = ERMData, group.by = "SampleName", reduction = "tsne")
 
 # 6. Clustering cells based on top PCs
 ## 6.1 Identify significant PCs
-```{r fig.width = 6}
+```{r fig.width = 5}
 # Plot the elbow plot
 ElbowPlot(object = ERMData, ndims = 30)
 ```
@@ -936,7 +944,7 @@ ElbowPlot(object = ERMData, ndims = 30)
 ERMData <- FindNeighbors(object = ERMData, dims = pc.num)
 ```
 
-```{r fig.height=8}
+```{r fig.height=8,fig.width = 8}
 checkRes <- FindClusters(object = ERMData, resolution = c(seq(0.1,0.9,0.1)), verbose = F)
 clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
 ```
@@ -954,7 +962,7 @@ p2 <- DimPlot(ERMData.3, reduction = "umap", label = TRUE, label.size = 6)
 plot_grid(p1, p2,rel_widths = c(2,2))
 ```
 
-```{r fig.width=12}
+```{r fig.width=10}
 # Plot the UMAP
 DimPlot(ERMData.3, reduction = "umap", label = TRUE, label.size = 6, split.by = "FVM.Stage")
 ```
@@ -972,7 +980,7 @@ p4 <- DimPlot(ERMData.2, reduction = "umap", label = TRUE, label.size = 6)
 plot_grid(p3, p4,rel_widths = c(2,2))
 ```
 
-```{r fig.width=12}
+```{r fig.width=10}
 # Plot the tSNE
 DimPlot(ERMData.2, reduction = "umap", label = TRUE, label.size = 6, split.by = "FVM.Stage")
 ```
@@ -985,7 +993,7 @@ ERMData <- FindClusters(ERMData, resolution = 0.2)
 
 ---
 
-# 7.Find cluster biomarkers
+# 7. Find cluster biomarkers
 
 `min.pct` argument requires a gene to be detected at a minimum percentage in either of the two groups of cells
 
@@ -1012,7 +1020,7 @@ write.csv(markers, file = "../data/annotation/biomarkers-for-each-clusters.csv")
 
 
 * Check if biomarkers chosen can differentiate effectively
-```{r fig.height=10}
+```{r fig.height=10,fig.width = 8}
 top7 <- markers %>% group_by(cluster) %>% top_n(7, avg_log2FC)
 # setting slim.col.label to TRUE will print just the cluster IDS instead of
 # every cell name
@@ -1062,7 +1070,7 @@ result_main_hpca <- as.data.frame(pred.main.hpca$labels)
 result_main_hpca$CB <- rownames(pred.main.hpca)
 colnames(result_main_hpca) <- c('HPCA_Main', 'seurat_clusters')
 
-write.table(result_main_hpca, file = "output/Annotation/HPCA_Main.txt", sep = '\t', row.names = FALSE, col.names = TRUE, quote = FALSE)
+# write.table(result_main_hpca, file = "../output/Annotation/HPCA_Main.txt", sep = '\t', row.names = FALSE, col.names = TRUE, quote = FALSE)
 
 head(result_main_hpca)
 ```
@@ -1078,11 +1086,11 @@ head(ERMData.rawAnno@meta.data)
 
 **Examine the result of annotation:** 
 
-```{r}
+```{r fig.width = 8}
 plotScoreHeatmap(pred.main.hpca)
 ```
 
-```{r}
+```{r fig.width = 10}
 p3 <- DimPlot(ERMData.rawAnno, reduction = "tsne", group.by = "HPCA_Main", label = TRUE, repel = TRUE, pt.size=0.5)+theme(
   axis.line = element_blank(),
   axis.ticks = element_blank(),axis.text = element_blank()
@@ -1096,8 +1104,8 @@ plot_grid(p4,p3,rel_widths = c(2,2))
 ```
 
 
-<details><summary>Session Info</summary>
-```{r}
+<details><summary>➤ Session Info<</summary>
+```{r echo=FALSE}
 sessionInfo()
 ```
 </details>
