@@ -9,6 +9,8 @@ output:
   lightbox: true
   gallery: false
   highlight: tango
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r include=FALSE}
@@ -24,8 +26,12 @@ knitr::opts_chunk$set(
 ---
 
 Data Description:  
-1. 
-ATTENTION: 合并数据集时因为Barcode重复，有损失部分细胞(WARNING: )
+
+* raw.Singleron & raw.10X: raw data整合  
+* clean.Singleron & ckean.10X: 经过去双细胞+QC后数据  
+* Integrated: 经过Harmony整合不同测序平台后的数据，并添加详细MetaData
+* ERMData: 从Integrated中提取的case数据，已完成`FindClusters()`
+* ERMData.rawAnno: 经过SingleR注释后的数据，基于`resolution=0.2`
 
 ---
 
@@ -81,15 +87,6 @@ raw.Singleron <- merge(x = raw.p1ERM, y = c(raw.p1Blood, raw.p2ERM, raw.p2Blood,
 raw.10X <- merge(x = raw.ctl2.10X, y = c(raw.ctl3.10X,raw.ctl4.10X, raw.ctl5.10X, raw.ctl6.10X))
 ```
 
->Warning message:  
->In CheckDuplicateCellNames(object.list = objects) :
-Some cell names are duplicated across objects provided. Renaming to enforce unique cell names. 
->  
->Replied by satijalab Collaborator:  
->there is a function called `RenameCells` in Seurat v3 that can be used to rename cells. However, this is done for you automatically in `FindIntegrationAnchors` if you have duplicate cell names in the groups (notice you get a warning rather than an error).
-
-
-
 ## 1.3 Check Data
 
 ```{r include=FALSE}
@@ -124,6 +121,8 @@ raw.10X@meta.data %>%
   	theme(plot.title = element_text(hjust=0.5, face="bold")) +
   	ggtitle("NCells")
 ```
+
+---
 
 # 2. QC--Singleron
 ## 2.1 Data examining
@@ -161,7 +160,7 @@ library(ggsci)
 
 ### 2.2.1 Pre-process Seurat object
 
-```{r message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE,fig.width = 6}
 raw.Singleron <- SCTransform(raw.Singleron, verbose = F)
 raw.Singleron <- RunPCA(raw.Singleron, npcs = 30, verbose = F)
 ElbowPlot(raw.Singleron,ndims = 30)
@@ -178,7 +177,7 @@ raw.Singleron <- FindNeighbors(raw.Singleron, reduction = "pca", dims = pc.num)
 ```
 
 ```{r fig.height=8}
-checkRes <- FindClusters(object = raw.Singleron, resolution = c(seq(.1,1.6,.2)), verbose = F)
+checkRes <- FindClusters(object = raw.Singleron, resolution = c(seq(.1,1.4,.2)), verbose = F)
 clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
 ```
 
@@ -235,7 +234,7 @@ raw.Singleron <- doubletFinder_v3(raw.Singleron, PCs = pc.num, pN = 0.25, pK = p
 ```
 
 ```{r include=FALSE, eval=TRUE}
-raw.Singleron <- readRDS("data/tmp.data/doublet-Singleron.RDS")
+raw.Singleron <- readRDS("../data/tmp.data/doublet-Singleron.RDS")
 ```
 
 ```{r}
@@ -323,7 +322,7 @@ raw.Singleron.singlet@meta.data %>%
 
 
 **UMIs vs. genes detected**  
-Cells that are poor quality are likely to have low genes and UMIs per cell, and correspond to the data points in the bottom left quadrant of the plot. Good cells will generally exhibit both higher number of genes per cell and higher numbers of UMIs. Cells have a high number of UMIs but only a few number of genes could be dying cells, but also could represent a population of a low complexity celltype (i.e red blood cells).  
+Cells that are poor quality are likely to have low genes and UMIs per cell, and correspond to the data points in the bottom left quadrant of the plot. Cells have a high number of UMIs but only a few number of genes could be dying cells, but also could represent a population of a low complexity celltype (i.e red blood cells).  
 
 
 * Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
@@ -439,6 +438,7 @@ clean.Singleron.singlet <- CreateSeuratObject(filtered_counts, meta.data = filte
 clean.Singleron.singlet
 ```
 
+---
 
 # 3. QC--10X
 ## 3.1 Data examining
@@ -471,7 +471,7 @@ library(ggsci)
 
 ### 3.2.1 Pre-process Seurat object
 
-```{r message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE,fig.width = 6}
 raw.10X <- SCTransform(raw.10X, verbose = F)
 raw.10X <- RunPCA(raw.10X, npcs = 30, verbose = F)
 ElbowPlot(raw.10X,ndims = 30)
@@ -488,7 +488,7 @@ raw.10X <- FindNeighbors(raw.10X, reduction = "pca", dims = pc.num.10X)
 ```
 
 ```{r fig.height=8}
-checkRes <- FindClusters(object = raw.10X, resolution = c(seq(.1,1.6,.2)), verbose = F)
+checkRes <- FindClusters(object = raw.10X, resolution = c(seq(.1,1.4,.2)), verbose = F)
 clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
 ```
 
@@ -506,7 +506,7 @@ sweep.stats <- summarizeSweep(sweep.res.list, GT = F)
 ```
 
 ```{r include=FALSE}
-load("data/tmp.data/sweepStats-10X.RData")
+load("../data/tmp.data/sweepStats-10X.RData")
 ```
 
 ```{r}
@@ -593,7 +593,7 @@ raw.10X.singlet$percent.ribo <- raw.10X.singlet@meta.data$percent.ribo / 100
 ```
 
 **number of genes detected per UMI:**    
-  represent the complexity of our dataset (more genes detected per UMI, more complex our data)
+
 ```{r}
 raw.10X.singlet$log10GenesPerUMI <- log10(raw.10X.singlet$nFeature_RNA) / log10(raw.10X.singlet$nCount_RNA)
 ```
@@ -601,7 +601,6 @@ raw.10X.singlet$log10GenesPerUMI <- log10(raw.10X.singlet$nFeature_RNA) / log10(
 ### 3.3.2 Assessing the quality metrics:   
 
 **UMI counts (transcripts) per cell**  
-  The UMI counts per cell should generally be above 500, that is the low end of what we expect. If UMI counts are between 500-1000 counts, it is usable but the cells probably should have been sequenced more deeply.    
 
 * Visualize the number UMIs/transcripts per cell    
 ```{r}
@@ -615,7 +614,6 @@ raw.10X.singlet@meta.data %>%
 ```
 
 **Genes detected per cell**  
-  For high quality data, the proportional histogram should contain a single large peak that represents cells that were encapsulated. 
 
 * Visualize the distribution of genes detected per cell via histogram
 ```{r}
@@ -629,10 +627,6 @@ raw.10X.singlet@meta.data %>%
 
 
 **UMIs vs. genes detected**  
-  Cells that are poor quality are likely to have low genes and UMIs per cell, and correspond to the data points in the bottom left quadrant of the plot. Good cells will generally exhibit both higher number of genes per cell and higher numbers of UMIs. Cells have a high number of UMIs but only a few number of genes could be dying cells, but also could represent a population of a low complexity celltype (i.e red blood cells).  
-
-
-Mitochondrial read fractions are only high in particularly low count cells with few detected genes. This could be indicative of damaged/dying cells whose cytoplasmic mRNA has leaked out through a broken membrane, and thus, only mRNA located in the mitochondria is still conserved.   
 
 * Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
 ```{r}
@@ -649,8 +643,7 @@ raw.10X.singlet@meta.data %>%
   facet_wrap(~orig.ident)
 ```
 
-**Complexity**
-  Outlier cells in these samples might be cells that have a less complex RNA species than other cells. Sometimes we can detect contamination with low complexity cell types like red blood cells via this metric. Generally, we expect the novelty score to be above 0.80.
+**Complexity**  
 
 * Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
 ```{r}
@@ -661,8 +654,7 @@ raw.10X.singlet@meta.data %>%
   geom_vline(xintercept = 0.8)
 ```
 
-**Mitochondrial counts ratio**
-  This metric can identify whether there is a large amount of mitochondrial contamination from dead or dying cells.
+**Mitochondrial counts ratio**  
 
 * Visualize the distribution of mitochondrial gene expression detected per cell
 ```{r}
@@ -675,9 +667,7 @@ raw.10X.singlet@meta.data %>%
 ```
 
 
-**Ribosome counts ratio**
-  This metric can identify whether there is a large amount of ribosome contamination from dead or dying cells.
-
+**Ribosome counts ratio**  
 * Visualize the distribution of ribosome gene expression detected per cell
 ```{r}
 raw.10X.singlet@meta.data %>% 
@@ -689,8 +679,7 @@ raw.10X.singlet@meta.data %>%
 ```
 
 
-**Hemoglobin counts ratio**
-  This metric can identify whether there is a large amount of hemoglobin contamination from red blood cell leak.
+**Hemoglobin counts ratio**  
 
 * Visualize the distribution of mitochondrial gene expression detected per cell
 ```{r}
@@ -726,7 +715,7 @@ filteredData
 
 ### 3.4.2 Gene-level filtering
 
-First we will remove genes that have zero expression in all cells. Additionally, we will perform some filtering by prevalence. If a gene is only expressed in a handful of cells, it is not particularly meaningful. For our data we choose to **keep only genes which are expressed in 3 or more cells**.
+For our data we choose to **keep only genes which are expressed in 3 or more cells**.
 
 ```{r}
 # Extract counts
@@ -747,6 +736,8 @@ clean.10X.singlet <- CreateSeuratObject(filtered_counts, meta.data = filteredDat
 clean.10X.singlet
 ```
 
+---
+
 # 4. Integration
 
 **Harmony**  
@@ -755,7 +746,7 @@ clean.10X.singlet
 
 ## 4.1 Cell cycle scoring check
 ```{r}
-cell_cycle_genes <- read.csv("data/cell-cycle/Homo_sapiens.csv")
+cell_cycle_genes <- read.csv("../data/cell-cycle/Homo_sapiens.csv")
 head(cell_cycle_genes)
 ```
 
@@ -830,7 +821,7 @@ mergedData <- readRDS("../data/tmp.data/mergedData-not-harmony.RDS")
 ```
 
 ```{r}
-VlnPlot(mergedData, features = c("S.Score", "G2M.Score"), group.by = "orig.ident", ncol = 4, pt.size = 0.1)
+VlnPlot(mergedData, features = c("S.Score", "G2M.Score"), group.by = "Status", ncol = 4, pt.size = 0.1)
 ```
 
 ```{r eval=FALSE}
@@ -858,9 +849,6 @@ rownames(usedCol) <- usedCol$barcode
 mergedData <- AddMetaData(object = mergedData, metadata = usedCol)
 ```
 
-```{r}
-head(mergedData@meta.data)
-```
 
 ```{r eval=FALSE}
 integrated <- RunHarmony(mergedData, "Platform", assay.use = "SCT", plot_convergence = TRUE)
@@ -868,89 +856,248 @@ integrated <- RunHarmony(mergedData, "Platform", assay.use = "SCT", plot_converg
 
 ```{r include=FALSE}
 integrated <- readRDS("../data/integrateData/integrated-for-downstream.RDS")
+integrated
 ```
 
-# 5. Dimensional reduction
-## 5.1 PCA
 ```{r}
-# Run PCA
-integrated <- RunPCA(object = integrated, npcs = 30, verbose = F)
-ElbowPlot(integrated, ndims = 30)
+head(integrated@meta.data)
+```
+
+## 4.3 Check integration
+```{r}
+# Run tSNE
+integrated <- RunTSNE(object = integrated, dims.use = 25,reduction = "harmony")
+
+# Plot tSNE
+DimPlot(object = integrated, group.by = "Status", reduction = "tsne")
 ```
 
 ```{r fig.width=12}
-pc.num=1:25
+FeaturePlot(object = integrated, features = c("CCR5"), cols = c("grey", "blue"), reduction = "tsne", split.by = "Status")
+```
 
-# Plot PCA
-PCAPlot(integrated, split.by = "SampleName")  
+```{r fig.width=12}
+FeaturePlot(object = integrated, features = c("ENO2"), cols = c("grey", "blue"), reduction = "tsne",split.by = "Status")
+```
+
+---
+
+# 5. Dimensional reduction
+
+* Extract ERM Data  
+
+```{r}
+ERMData <- integrated[, integrated@meta.data[, "Status"] == "ERM"]
+ERMData
+```
+
+## 5.1 PCA
+```{r fig.width = 6}
+# Run PCA
+ERMData <- RunPCA(object = ERMData, npcs = 30, verbose = F)
+ElbowPlot(ERMData, ndims = 30)
+```
+
+```{r}
+# Set PC number
+pc.num=1:20
 ```
 
 ## 5.2 UMAP
 ```{r}
 # Run UMAP
-integrated <- RunUMAP(integrated, dims = pc.num, reduction = "harmony")
+ERMData <- RunUMAP(ERMData, dims = pc.num, reduction = "harmony")
 
 # Plot UMAP                             
-DimPlot(integrated, group.by = "SampleName") 
+DimPlot(ERMData, group.by = "SampleName") 
 ```
 
 ## 5.2 tSNE
 ```{r}
 # Run tSNE
-integrated <- RunTSNE(object = integrated, dims.use = pc.num,reduction = "harmony")
+ERMData <- RunTSNE(object = ERMData, dims.use = pc.num,reduction = "harmony")
 
 # Plot tSNE
-DimPlot(object = integrated, group.by = "SampleName", reduction = "tsne",split.by = "FVM.Stage")
+DimPlot(object = ERMData, group.by = "SampleName", reduction = "tsne")
 ```
 
-```{r fig.width=12}
-FeaturePlot(object = integrated, features = c("GPNMB"), cols = c("grey", "blue"), reduction = "tsne",split.by = "orig.ident")
-```
-
-```{r fig.width=12}
-FeaturePlot(object = integrated, features = c("CD3D"), cols = c("grey", "blue"), reduction = "tsne",split.by = "orig.ident")
-```
-
-
-```{r fig.width=12,fig.height=7}
-FeaturePlot(object = integrated, features = c("CD8A", "CD8B", "ZNF683"), cols = c("grey", "blue"), reduction = "tsne", split.by = "orig.ident")
-```
+---
 
 # 6. Clustering cells based on top PCs
 ## 6.1 Identify significant PCs
-```{r}
+```{r fig.width = 6}
 # Plot the elbow plot
-ElbowPlot(object = integrated, ndims = 30)
+ElbowPlot(object = ERMData, ndims = 30)
 ```
 
 ## 6.2 Cluster the cells
 ```{r}
 # Determine the K-nearest neighbor graph
-integrated <- FindNeighbors(object = integrated, dims = pc.num)
+ERMData <- FindNeighbors(object = ERMData, dims = pc.num)
 ```
 
 ```{r fig.height=8}
-checkRes <- FindClusters(object = integrated, resolution = c(seq(.1,1.6,.2)), verbose = F)
-clustree(checkRes@meta.data,prefix = "integrated_snn_res.")
+checkRes <- FindClusters(object = ERMData, resolution = c(seq(0.1,0.9,0.1)), verbose = F)
+clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
 ```
 
+* Resolution = 0.3 -- 11 cluster
 ```{r}
-integrated <- FindClusters(integrated, resolution = 0.7)
+ERMData.3 <- FindClusters(ERMData, resolution = 0.3)
 ```
 
-```{r}
+```{r fig.width=10}
+# Plot the tSNE
+p1 <- DimPlot(ERMData.3, reduction = "tsne", label = TRUE, label.size = 6)
 # Plot the UMAP
-DimPlot(integrated, reduction = "umap", label = TRUE, label.size = 6)
+p2 <- DimPlot(ERMData.3, reduction = "umap", label = TRUE, label.size = 6)
+plot_grid(p1, p2,rel_widths = c(2,2))
 ```
 
 ```{r fig.width=12}
 # Plot the UMAP
-DimPlot(integrated, reduction = "umap", label = TRUE, label.size = 6, split.by = "orig.ident")
+DimPlot(ERMData.3, reduction = "umap", label = TRUE, label.size = 6, split.by = "FVM.Stage")
+```
+
+* Resolution = 0.2 -- 8 cluster
+```{r}
+ERMData.2 <- FindClusters(ERMData, resolution = 0.2)
+```
+
+```{r fig.width=10}
+# Plot the tSNE
+p3 <- DimPlot(ERMData.2, reduction = "tsne", label = TRUE, label.size = 6)
+# Plot the UMAP
+p4 <- DimPlot(ERMData.2, reduction = "umap", label = TRUE, label.size = 6)
+plot_grid(p3, p4,rel_widths = c(2,2))
+```
+
+```{r fig.width=12}
+# Plot the tSNE
+DimPlot(ERMData.2, reduction = "umap", label = TRUE, label.size = 6, split.by = "FVM.Stage")
+```
+
+* Choose resolution = 0.2
+
+```{r}
+ERMData <- FindClusters(ERMData, resolution = 0.2)
+```
+
+---
+
+# 7.Find cluster biomarkers
+
+`min.pct` argument requires a gene to be detected at a minimum percentage in either of the two groups of cells
+
+```{r}
+# find all markers of cluster 1
+cluster1.markers <- FindMarkers(object = ERMData, ident.1 = 0, min.pct = 0.20)
+print(x = head(x = cluster1.markers, n = 5))
+```
+```{r}
+# find markers for every cluster compared to all remaining cells, report
+# only the positive ones
+# job::job(find_markers= { markers <- FindAllMarkers(object = set1.obj, only.pos = TRUE, min.pct = 0.25, thresh.use = 0.25)
+# })
+
+markers <- FindAllMarkers(object = ERMData, only.pos = TRUE, min.pct = 0.20, thresh.use = 0.25)
+```
+
+```{r}
+markers %>% group_by(cluster) %>% top_n(7, avg_log2FC)
+```
+```{r}
+write.csv(markers, file = "../data/annotation/biomarkers-for-each-clusters.csv")
 ```
 
 
-# Session Info
+* Check if biomarkers chosen can differentiate effectively
+```{r fig.height=10}
+top7 <- markers %>% group_by(cluster) %>% top_n(7, avg_log2FC)
+# setting slim.col.label to TRUE will print just the cluster IDS instead of
+# every cell name
+DoHeatmap(object = ERMData, features = top7$gene, label = TRUE,group.by = "seurat_clusters")
+```
 
+---
+
+# 8. Cell type annotation(SingleR)
+
+```{r}
+library(SingleR)
+library(celldex)
+library(scater)
+
+# hpca.se <- HumanPrimaryCellAtlasData()
+# save(hpca.se,file="../data/SingleR/hpca.se.RData")
+```
+
+```{r}
+ERMData.test <- as.data.frame(ERMData[["RNA"]]@counts)
+
+# load the ref and choose intersection
+load("../data/annotation/hpca-se.RData")
+common_hpca <- intersect(rownames(ERMData.test), rownames(hpca.se))
+hpca.se <- hpca.se[common_hpca,]
+hpca.se
+```
+
+```{r}
+ERM_forhpca.se <- SummarizedExperiment(assays=list(counts=ERMData.test[common_hpca,])) %>% logNormCounts()
+
+ERM_forhpca.se[["seurat_cluster"]] <- ERMData$seurat_clusters
+ERM_forhpca.se
+```
+
+```{r}
+# marker detection mode
+pred.main.hpca <- SingleR(test = ERM_forhpca.se, ref = hpca.se,
+                          labels = hpca.se$label.main,de.method="wilcox",
+                          clusters = ERM_forhpca.se$seurat_cluster)
+table(pred.main.hpca$pruned.labels)
+```
+
+```{r}
+result_main_hpca <- as.data.frame(pred.main.hpca$labels)
+result_main_hpca$CB <- rownames(pred.main.hpca)
+colnames(result_main_hpca) <- c('HPCA_Main', 'seurat_clusters')
+
+write.table(result_main_hpca, file = "output/Annotation/HPCA_Main.txt", sep = '\t', row.names = FALSE, col.names = TRUE, quote = FALSE)
+
+head(result_main_hpca)
+```
+
+```{r}
+ERMData.rawAnno <- ERMData
+ERMData.rawAnno@meta.data$CB <- rownames(ERMData.rawAnno@meta.data)
+ERMData.rawAnno@meta.data <- merge(ERMData.rawAnno@meta.data,result_main_hpca,by="seurat_clusters")
+rownames(ERMData.rawAnno@meta.data) <- ERMData.rawAnno@meta.data$CB
+
+head(ERMData.rawAnno@meta.data)
+```
+
+**Examine the result of annotation:** 
+
+```{r}
+plotScoreHeatmap(pred.main.hpca)
+```
+
+```{r}
+p3 <- DimPlot(ERMData.rawAnno, reduction = "tsne", group.by = "HPCA_Main", label = TRUE, repel = TRUE, pt.size=0.5)+theme(
+  axis.line = element_blank(),
+  axis.ticks = element_blank(),axis.text = element_blank()
+)
+
+p4 <- DimPlot(ERMData.rawAnno, reduction = "tsne", group.by = "seurat_clusters",pt.size=0.5, label = TRUE,repel = TRUE)+theme(
+  axis.line = element_blank(),
+  axis.ticks = element_blank(),axis.text = element_blank()
+)
+plot_grid(p4,p3,rel_widths = c(2,2))
+```
+
+
+<details><summary>Session Info</summary>
 ```{r}
 sessionInfo()
 ```
+</details>
