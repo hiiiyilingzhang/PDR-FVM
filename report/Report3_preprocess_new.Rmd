@@ -52,7 +52,7 @@ raw.p3Blood <- read.table("data/rawMatix/patient_3/PDR-blood-0609_matrix.tsv",he
 raw.p4ERM <- read.table("data/rawMatix/patient_4/PDR-ERM-210630_matrix.tsv",header = T) %>% CreateSeuratObject(project = "p4-ERM")
 raw.p4Blood <- read.table("data/rawMatix/patient_4/PDR-B-210630_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p4-Blood")
 
-raw.ctl1.Singleron <- read.table("data/rawMatix/control_PBMC/mid-aged/DZ0804_matrix.tsv.gz",header = T) %>% CreateSeuratObject(project = "p4-ERM")
+raw.ctl1.Singleron <- read.table("data/rawMatix/control_PBMC/mid-aged/DZ0804_matrix.tsv.gz",header = T) %>% CreateSeuratObject()
 ```
 
 **10X**: 
@@ -748,9 +748,14 @@ clean.10X.singlet
 ```
 
 # 4. Integration
+
+**Harmony**  
+>https://github.com/immunogenomics/harmony  
+>Overview of Harmony algorithm: PCA embeds cells into a space with reduced dimensionality. Harmony accepts the cell coordinates in this reduced space and runs an iterative algorithm to adjust for dataset specific effects.  
+
 ## 4.1 Cell cycle scoring check
 ```{r}
-cell_cycle_genes <- read.csv("../data/cell-cycle/Homo_sapiens.csv")
+cell_cycle_genes <- read.csv("data/cell-cycle/Homo_sapiens.csv")
 head(cell_cycle_genes)
 ```
 
@@ -789,13 +794,13 @@ annotations <- annotations %>%
 ```
 
 ```{r eval=TRUE, include=FALSE}
-load("../data/annotation/annotations.RData")
+load("data/annotation/annotations.RData")
 ```
 
 * Annotations to get the corresponding gene names for the Ensembl IDs of the cell cycle genes
 ```{r}
 # Get gene names for Ensembl IDs for each gene
-cell_cycle_markers <- dplyr::left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
+cell_cycle_markers <- left_join(cell_cycle_genes, annotations, by = c("geneID" = "gene_id"))
 
 # Acquire the S phase genes
 s_genes <- cell_cycle_markers %>%
@@ -810,52 +815,59 @@ g2m_genes <- cell_cycle_markers %>%
 
 ## 4.2 SCTransform
 
-```{r}
-split_seurat <- SplitObject(filteredData2, split.by = "orig.ident")
-split_seurat
+```{r eval=FALSE}
+mergedData <- merge(x = clean10X, y = cleanSingleron)
 ```
 
 Perform the cell cycle scoring and sctransform on all samples.
+```{r eval=FALSE}
+mergedData <- NormalizeData(mergedData, verbose = F) %>% 
+  CellCycleScoring(g2m.features=g2m_genes, s.features=s_genes)
+```
+
+```{r include=FALSE}
+mergedData <- readRDS("../data/tmp.data/mergedData-not-harmony.RDS")
+```
+
 ```{r}
-for (i in 1:length(split_seurat)) {
-    split_seurat[[i]] <- NormalizeData(split_seurat[[i]], verbose = F)
-    split_seurat[[i]] <- CellCycleScoring(split_seurat[[i]], g2m.features=g2m_genes, s.features=s_genes)
-    split_seurat[[i]] <- SCTransform(split_seurat[[i]], vars.to.regress = c("percent.mt"), variable.features.n = 5000,  verbose = F, seed.use = 27)
-}
+VlnPlot(mergedData, features = c("S.Score", "G2M.Score"), group.by = "orig.ident", ncol = 4, pt.size = 0.1)
+```
+
+```{r eval=FALSE}
+mergedData <- SCTransform(mergedData, vars.to.regress = c("percent.mt"), variable.features.n = 3000, verbose = F, seed.use = 27)
+
+mergedData <- RunPCA(mergedData, npcs = 30, verbose = FALSE)
 ```
 
 ## 4.2 Integration
 
-First, we need to specify that we want to use 3000 most variable genes identified by SCTransform for the integration. By default, this function only selects the top 2000 genes.
-```{r eval=FALSE}
-# Select the most variable features to use for integration
-integ_features <- SelectIntegrationFeatures(object.list = split_seurat, nfeatures = 3000) 
+* Add metadata
+```{r}
+sampledata <- read.table("data/tmp.data/sampleData.txt", header = T, sep = "\t")
+head(sampledata)
 ```
 
-Then, we need to prepare the SCTransform object for integration.
 ```{r eval=FALSE}
-# Prepare the SCT list object for integration
-split_seurat <- PrepSCTIntegration(object.list = split_seurat, 
-                                   anchor.features = integ_features)
+metaNow <- mergedData@meta.data
+metaNow$barcode <- rownames(metaNow)
+
+usedCol <- metaNow[,c("barcode","orig.ident")]
+usedCol <- merge(usedCol, sampledata, by = "orig.ident")
+rownames(usedCol) <- usedCol$barcode
+
+mergedData <- AddMetaData(object = mergedData, metadata = usedCol)
 ```
 
-Now, we are going to perform CCA, find the best buddies or anchors and filter incorrect anchors. 
-```{r eval=FALSE}
-# Find best buddies - can take a while to run
-integ_anchors <- FindIntegrationAnchors(object.list = split_seurat, 
-                                        normalization.method = "SCT", 
-                                        anchor.features = integ_features)
+```{r}
+head(mergedData@meta.data)
 ```
 
-Finally, we can integrate across conditions.
 ```{r eval=FALSE}
-# Integrate across conditions
-integrated <- IntegrateData(anchorset = integ_anchors, normalization.method = "SCT")
-integrated
+integrated <- RunHarmony(mergedData, "Platform", assay.use = "SCT", plot_convergence = TRUE)
 ```
 
 ```{r include=FALSE}
-integrated <- readRDS("../data/SeuratObj/integrated.rds")
+integrated <- readRDS("../data/integrateData/integrated-for-downstream.RDS")
 ```
 
 # 5. Dimensional reduction
@@ -870,25 +882,25 @@ ElbowPlot(integrated, ndims = 30)
 pc.num=1:25
 
 # Plot PCA
-PCAPlot(integrated, split.by = "orig.ident")  
+PCAPlot(integrated, split.by = "SampleName")  
 ```
 
 ## 5.2 UMAP
 ```{r}
 # Run UMAP
-integrated <- RunUMAP(integrated, dims = pc.num, reduction = "pca")
+integrated <- RunUMAP(integrated, dims = pc.num, reduction = "harmony")
 
 # Plot UMAP                             
-DimPlot(integrated, group.by = "orig.ident") 
+DimPlot(integrated, group.by = "SampleName") 
 ```
 
 ## 5.2 tSNE
 ```{r}
 # Run tSNE
-integrated <- RunTSNE(object = integrated, dims.use = pc.num)
+integrated <- RunTSNE(object = integrated, dims.use = pc.num,reduction = "harmony")
 
 # Plot tSNE
-DimPlot(object = integrated, group.by = "orig.ident", reduction = "tsne")
+DimPlot(object = integrated, group.by = "SampleName", reduction = "tsne",split.by = "FVM.Stage")
 ```
 
 ```{r fig.width=12}
