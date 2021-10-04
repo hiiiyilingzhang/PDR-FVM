@@ -17,90 +17,195 @@ hist(log10(genes_per_cell+1), main='genes per cell', col='Thistle')
 
 # DoubletFinder
 # https://github.com/chris-mcginnis-ucsf/DoubletFinder
+
 library(DoubletFinder)
 library(patchwork)
+library(ggraph)
 library(clustree)
+library(ggsci)
 
-inteData <- ScaleData(inteData, verbose = FALSE) %>% RunPCA(npcs = 30)
+# Pre-process Seurat object
+raw.Singleron <- SCTransform(raw.Singleron, verbose = F)
+raw.Singleron <- RunPCA(raw.Singleron, npcs = 30, verbose = F)
+ElbowPlot(raw.Singleron,ndims = 30)
 
-ElbowPlot(inteData,ndims = 30)
-pc.num=1:20 # Set dim 1:20
+# Set dim 1:20
+pc.num=1:25
 
-inteData <- RunUMAP(inteData, dims=pc.num,verbose = F)
-inteData <- FindNeighbors(inteData, reduction = "pca", dims = pc.num)
+raw.Singleron <- RunUMAP(raw.Singleron, dims=pc.num,verbose = F)
+raw.Singleron <- FindNeighbors(raw.Singleron, reduction = "pca", dims = pc.num)
 
-checkRes <- FindClusters(object = inteData, resolution = c(seq(.1,1.6,.2)), verbose = F)
-clustree(checkRes@meta.data,prefix = "integrated_snn_res.")
-inteData <- FindClusters(inteData, resolution = 0.7)
+checkRes <- FindClusters(object = raw.Singleron, resolution = c(seq(.1,1.4,.2)), verbose = F)
+clustree(checkRes@meta.data,prefix = "SCT_snn_res.")
+
+raw.Singleron <- FindClusters(raw.Singleron, resolution = 0.7)
+
+# pK Identification
 
 # Optimize the parameters
-sweep.res.list <- paramSweep_v3(inteData, PCs = pc.num, sct = T)
+sweep.res.list <- paramSweep_v3(raw.Singleron, PCs = pc.num, sct = T)
 # Use log transform
-sweep.stats <- summarizeSweep(sweep.res.list, GT = F)
 # Show the best parameter
 bcmvn <- find.pK(sweep.stats)
+
 # Extract the best pK
 pK_bcmvn <- bcmvn$pK[which.max(bcmvn$BCmetric)] %>% as.character() %>% as.numeric()
-pK_bcmvn <- 0.06
+pK_bcmvn
 
-# Run DoubletFinder
-# Exclude doublets
-# doublet rate: https://singleronbio.com/product/?type=detail&id=8
-DoubletRate = 0.0268
+# Homotypic Doublet Proportion Estimate
+# doublet rate: https://www.singleronbio.com/resources/list-19.html. Because of the various distribution of cell number detected, we set 2.68% based on the Standard Chip, just in case we miss important data especially p2-ERM(589 cells). 
+
 # Estimate the percentage of homotypic doublets
-homotypic.prop <- modelHomotypic(inteData$seurat_clusters)
-nExp_poi <- round(DoubletRate*ncol(inteData)) 
+homotypic.prop <- modelHomotypic(raw.Singleron$seurat_clusters)
+nExp_poi <- round(DoubletRate*ncol(raw.Singleron)) 
 # Adjust for homotypic doublets
 nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
-# Run DoubletFinder with varying classification stringencies
-inteData <- doubletFinder_v3(inteData, PCs = pc.num, pN = 0.25, pK = pK_bcmvn, 
-                             nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
+
+# Run DoubletFinder
+raw.Singleron <- doubletFinder_v3(raw.Singleron, PCs = pc.num, pN = 0.25, pK = pK_bcmvn, nExp = nExp_poi.adj, reuse.pANN = F, sct = T)
+
 # Present the res, classification info is saved in meta.data
-DF.name <- colnames(inteData@meta.data)[grepl("DF.classification", colnames(inteData@meta.data))]
+DF.name <- colnames(raw.Singleron@meta.data)[grepl("DF.classification", colnames(raw.Singleron@meta.data))]
 # Visualization
-pdf(file = "results/QC-DoubletFinder/res-plot.pdf", width = 8, height = 4)
-cowplot::plot_grid(ncol = 2, DimPlot(inteData, group.by = "orig.ident") + NoAxes(), 
-                   DimPlot(inteData, group.by = DF.name) + NoAxes())
-dev.off()
+cowplot::plot_grid(ncol = 2, DimPlot(raw.Singleron, group.by = "orig.ident") + NoAxes(),DimPlot(raw.Singleron, group.by = DF.name) + NoAxes())
 
-## Calculate QC ----
 
-# ---- troubleshooting ----
-# https://github.com/satijalab/seurat/issues/3596
-# Error in h(simpleError(msg, call)) : 
-#   error in evaluating the argument 'x' in selecting a method for function 'colSums': no 'dimnames[[.]]': cannot use character indexing
-# 
-# PercentageFeatureSet uses the raw counts matrix, which is not present in the integrated assay. 
-# If you pass assay = "RNA"/"SCT", then PercentageFeatureSet will run correctly
-# -------------------------
+raw.Singleron$DF.classifications_0.25_0.22_1336 <- factor(raw.Singleron$DF.classifications_0.25_0.22_1336)
 
-# mt
-inteData[["percent.mt"]] <- PercentageFeatureSet(object = inteData, pattern = "^MT-", assay = "RNA")
-inteData$percent.mt <- inteData@meta.data$percent.mt / 100
-# ribosome
-inteData[["percent.ribo"]] <- PercentageFeatureSet(object = inteData, pattern = "^RP[SL]", assay = "RNA")
-# hb
-inteData[["percent.hb"]] <- PercentageFeatureSet(object = inteData, pattern = "^HB[^(P)]", assay = "RNA")
-# genes per UMI for each cell
-inteData$log10GenesPerUMI <- log10(inteData$nFeature_RNA) / log10(inteData$nCount_RNA)
+raw.Singleron@meta.data %>% 
+  ggplot(aes(x=orig.ident, fill=DF.classifications_0.25_0.22_1336)) + 
+  geom_bar(position = "stack") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  ggtitle("NCells")+
+  scale_fill_npg()
 
-## Plot QC ----
-feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo", "percent.hb")
-pdf(file = "results/QC-Calculate/vinplot.pdf", height = 6, width = 10)
-VlnPlot(inteData, group.by = "orig.ident", features = feats, pt.size = 0.1, ncol = 3) + NoLegend()
-dev.off()
+raw.Singleron.singlet <- raw.Singleron[, raw.Singleron@meta.data[, DF.name] == "Singlet"]
+raw.Singleron.singlet
 
-# VlnPlot(inteData, group.by = "orig.ident", features = "percent.hb", pt.size = 0.1, y.max = 1)
-# hb???? weird
+## Calculate QC----
+# Generating quality metrics
 
-## Filtering ----
-# Detection-based filtering
-par(mar = c(4, 8, 2, 1))
-C <- inteData@assays$RNA@counts
-C <- Matrix::t(Matrix::t(C)/Matrix::colSums(C)) * 100
-most_expressed <- order(apply(C, 1, median), decreasing = T)[20:1]
-boxplot(as.matrix(t(C[most_expressed,])), cex = 0.1, las = 1, xlab = "% total count per cell", col = (scales::hue_pal())(20)[20:1], horizontal = TRUE)
+# mitochondrial ratio
+raw.Singleron.singlet[["percent.mt"]] <- PercentageFeatureSet(object = raw.Singleron.singlet, pattern = "^MT-", assay = "RNA")
+raw.Singleron.singlet$percent.mt <- raw.Singleron.singlet@meta.data$percent.mt / 100
 
-# Mito/Ribo/hb filtering
-selected_mito <- WhichCells(inteData, expression = percent.mt < 20)
-selected_ribo <- WhichCells(inteData, expression = percent.ribo > 5)
+# ribosome ratio
+raw.Singleron.singlet[["percent.ribo"]] <- PercentageFeatureSet(object = raw.Singleron.singlet, pattern = "^RP[SL]", assay = "RNA")
+raw.Singleron.singlet$percent.ribo <- raw.Singleron.singlet@meta.data$percent.ribo / 100
+
+# hemoglobin ratio
+raw.Singleron.singlet[["percent.hb"]] <- PercentageFeatureSet(object = raw.Singleron.singlet, pattern = "^HB[^(P)]", assay = "RNA")
+raw.Singleron.singlet$percent.ribo <- raw.Singleron.singlet@meta.data$percent.ribo / 100
+
+# number of genes detected per UMI
+raw.Singleron.singlet$log10GenesPerUMI <- log10(raw.Singleron.singlet$nFeature_RNA) / log10(raw.Singleron.singlet$nCount_RNA)
+
+# Assessing the quality metrics----
+
+# UMI counts (transcripts) per cell
+# Visualize the number UMIs/transcripts per cell    
+raw.Singleron.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+# Genes detected per cell 
+# Visualize the distribution of genes detected per cell via histogram
+raw.Singleron.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=nFeature_RNA, fill= orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  theme_classic() +
+  scale_x_log10() + 
+  geom_vline(xintercept = 200)
+
+# UMIs vs. genes detected
+raw.Singleron.singlet@meta.data %>% 
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  geom_point() + 
+  scale_colour_gradient(low = "gray90", high = "black") +
+  stat_smooth(method=lm) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 500) +
+  geom_hline(yintercept = 200) +
+  facet_wrap(~orig.ident)
+
+# Complexity
+raw.Singleron.singlet@meta.data %>%
+  ggplot(aes(x=log10GenesPerUMI, color = orig.ident, fill=orig.ident)) +
+  geom_density(alpha = 0.2) +
+  theme_classic() +
+  geom_vline(xintercept = 0.8)
+
+# Mitochondrial counts ratio
+
+raw.Singleron.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=percent.mt, fill=orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 0.2)
+
+
+# Ribosome counts ratio
+
+raw.Singleron.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=percent.ribo, fill=orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 0.01)
+
+# Hemoglobin counts ratio
+
+raw.Singleron.singlet@meta.data %>% 
+  ggplot(aes(color=orig.ident, x=percent.hb, fill=orig.ident)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 0.25)
+
+
+## Filtering----
+# Cell-level filtering
+
+# * nCount > 500  
+# * nFeature > 200 (p2-ERM 589 cells, preserve the data)  
+# * log10GenesPerUMI > 0.8  
+# * percent.mt < 0.2  
+# * percent.ribo < 0.01  
+# * percent.hb < 0.25  
+
+
+filteredData <- subset(x = raw.Singleron.singlet, 
+                       subset= (nCount_RNA >= 500) & 
+                         (nFeature_RNA >= 200) & 
+                         (log10GenesPerUMI > 0.80) & 
+                         (percent.mt < 0.20) & 
+                         (percent.ribo < 0.01) & 
+                         (percent.hb < 0.25))
+filteredData
+
+# Gene-level filtering
+## Extract counts
+counts <- GetAssayData(object = filteredData, slot = "counts",assay = "RNA")
+
+## Output a logical vector for every gene on whether the more than zero counts per cell
+nonzero <- counts > 0
+
+## Sums all TRUE values and returns TRUE if more than 3 TRUE values per gene
+keep_genes <- Matrix::rowSums(nonzero) >= 3
+
+## Only keeping those genes expressed in more than 10 cells
+filtered_counts <- counts[keep_genes, ]
+
+## Reassign to filtered Seurat object
+clean.Singleron.singlet <- CreateSeuratObject(filtered_counts, meta.data = filteredData@meta.data)
+
+clean.Singleron.singlet
